@@ -35,11 +35,9 @@ if _admins:
         except ValueError:
             print(f"Warning: ignoring invalid ADMIN_ID '{x}'")
 
-# Your Render URL (set this in environment variables)
 RENDER_URL = os.getenv("RENDER_URL", "https://subscription-bot-5yec.onrender.com")
 WEBHOOK_URL = f"{RENDER_URL}/webhook"
 
-# Basic validation
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is required")
 if not PRIVATE_CHANNEL_ID:
@@ -190,7 +188,6 @@ async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Approval failed: {e}")
 
 # -------------------- Bot Setup --------------------
-# Create the Application once and reuse it
 application = Application.builder().token(BOT_TOKEN).build()
 application.add_handler(CommandHandler("start", start_command))
 application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
@@ -208,18 +205,21 @@ def status():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    """Handle incoming Telegram updates."""
-    if request.method == "POST":
-        # Convert JSON to Update object
+    print("✅ Webhook received!", flush=True)
+    if request.method != "POST":
+        return "Method not allowed", 405
+    try:
         update = Update.de_json(request.get_json(force=True), application.bot)
-        # Process the update
+        print(f"Processing update {update.update_id}", flush=True)
         asyncio.run(application.process_update(update))
+        print(f"Update {update.update_id} processed successfully", flush=True)
         return "OK", 200
-    return "Method not allowed", 405
+    except Exception as e:
+        print(f"Error processing webhook: {e}", flush=True)
+        return "OK", 200
 
 @app.route("/set_webhook")
 def set_webhook():
-    """Set the webhook URL (call once after deployment)."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(application.bot.set_webhook(url=WEBHOOK_URL))
@@ -227,7 +227,6 @@ def set_webhook():
 
 @app.route("/webhook_info")
 def webhook_info():
-    """Show current webhook status."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     info = loop.run_until_complete(application.bot.get_webhook_info())
@@ -242,6 +241,7 @@ def webhook_info():
     </body>
     </html>
     """
+
 @app.route("/bot_info")
 def bot_info():
     loop = asyncio.new_event_loop()
@@ -251,7 +251,7 @@ def bot_info():
         return f"Bot: @{me.username} (ID: {me.id})"
     except Exception as e:
         return f"Error: {e}"
-    
+
 # -------------------- Run Flask --------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

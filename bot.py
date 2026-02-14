@@ -3,26 +3,19 @@ import sqlite3
 import threading
 import time
 import asyncio
+from flask import Flask, request
+from dotenv import load_dotenv
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    CallbackQueryHandler,
+    ContextTypes,
+)
 
-# Third-party imports: provide clear guidance if they're missing.
-try:
-    from flask import Flask, request
-    from dotenv import load_dotenv
-    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-    from telegram.ext import (
-        Application,
-        CommandHandler,
-        MessageHandler,
-        filters,
-        CallbackQueryHandler,
-        ContextTypes,
-    )
-except ImportError as e:
-    raise RuntimeError(
-        f"Missing dependency: {e}. Install requirements: `pip install -r requirements.txt`"
-    )
-
-# Load environment variables
+# -------------------- Load Environment Variables --------------------
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -42,7 +35,7 @@ if _admins:
         except ValueError:
             print(f"Warning: ignoring invalid ADMIN_ID '{x}'")
 
-# Your Render URL (replace if different)
+# Your Render URL (set this in environment variables)
 RENDER_URL = os.getenv("RENDER_URL", "https://subscription-bot-5yec.onrender.com")
 WEBHOOK_URL = f"{RENDER_URL}/webhook"
 
@@ -60,9 +53,11 @@ def init_db():
     with db_lock:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS subscriptions (
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS subscriptions (
                         user_id INTEGER PRIMARY KEY,
-                        expiry_date INTEGER NOT NULL)''')
+                        expiry_date INTEGER NOT NULL)"""
+        )
         conn.commit()
         conn.close()
 
@@ -71,7 +66,10 @@ def add_subscription(user_id, days=30):
     with db_lock:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute("REPLACE INTO subscriptions (user_id, expiry_date) VALUES (?, ?)", (user_id, expiry))
+        c.execute(
+            "REPLACE INTO subscriptions (user_id, expiry_date) VALUES (?, ?)",
+            (user_id, expiry),
+        )
         conn.commit()
         conn.close()
 
@@ -110,10 +108,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo = update.message.photo[-1]
     caption = f"Payment screenshot from {user.full_name} (@{user.username}) ID: {user.id}"
-    keyboard = [[
-        InlineKeyboardButton("Approve", callback_data=f"approve:{user.id}"),
-        InlineKeyboardButton("Decline", callback_data=f"decline:{user.id}")
-    ]]
+    keyboard = [
+        [
+            InlineKeyboardButton("Approve", callback_data=f"approve:{user.id}"),
+            InlineKeyboardButton("Decline", callback_data=f"decline:{user.id}"),
+        ]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     for admin_id in ADMIN_IDS:
@@ -148,7 +148,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             invite_link = await context.bot.create_chat_invite_link(
                 chat_id=PRIVATE_CHANNEL_ID,
                 member_limit=1,
-                expire_date=int(time.time()) + 30*86400,
+                expire_date=int(time.time()) + 30 * 86400,
             )
             await context.bot.send_message(
                 chat_id=user_id,
@@ -179,7 +179,7 @@ async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         invite_link = await context.bot.create_chat_invite_link(
             chat_id=PRIVATE_CHANNEL_ID,
             member_limit=1,
-            expire_date=int(time.time()) + days*86400,
+            expire_date=int(time.time()) + days * 86400,
         )
         await context.bot.send_message(
             chat_id=user_id,
@@ -212,7 +212,7 @@ def webhook():
     if request.method == "POST":
         # Convert JSON to Update object
         update = Update.de_json(request.get_json(force=True), application.bot)
-        # Process the update (use asyncio.run)
+        # Process the update
         asyncio.run(application.process_update(update))
         return "OK", 200
     return "Method not allowed", 405
@@ -224,6 +224,24 @@ def set_webhook():
     asyncio.set_event_loop(loop)
     loop.run_until_complete(application.bot.set_webhook(url=WEBHOOK_URL))
     return f"Webhook set to {WEBHOOK_URL}"
+
+@app.route("/webhook_info")
+def webhook_info():
+    """Show current webhook status."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    info = loop.run_until_complete(application.bot.get_webhook_info())
+    return f"""
+    <html>
+    <body>
+    <h2>Webhook Info</h2>
+    <p><b>URL:</b> {info.url}</p>
+    <p><b>Pending updates:</b> {info.pending_update_count}</p>
+    <p><b>Last error message:</b> {info.last_error_message}</p>
+    <p><b>Last error date:</b> {info.last_error_date}</p>
+    </body>
+    </html>
+    """
 
 # -------------------- Run Flask --------------------
 if __name__ == "__main__":

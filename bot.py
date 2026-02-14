@@ -3,17 +3,32 @@ import sqlite3
 import threading
 import time
 import asyncio
-from flask import Flask
-from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
-# Load environment variables
+# Provide a clear runtime error if required third-party packages are missing.
+try:
+    from flask import Flask
+    from dotenv import load_dotenv
+    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+    from telegram.ext import (
+        Application,
+        CommandHandler,
+        MessageHandler,
+        filters,
+        CallbackQueryHandler,
+        ContextTypes,
+    )
+except ImportError as e:
+    raise RuntimeError(
+        f"Missing dependency: {e}.\nInstall requirements with: `pip install -r requirements.txt`"
+    )
+
+# -------------------- Load Environment Variables --------------------
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PRIVATE_CHANNEL_ID = os.getenv("PRIVATE_CHANNEL_ID")
-if PRIVATE_CHANNEL_ID and PRIVATE_CHANNEL_ID.lstrip('-').isdigit():
+# Convert to int if it looks like a numeric channel ID (starts with -100)
+if PRIVATE_CHANNEL_ID and PRIVATE_CHANNEL_ID.lstrip("-").isdigit():
     PRIVATE_CHANNEL_ID = int(PRIVATE_CHANNEL_ID)
 
 ADMIN_IDS = []
@@ -39,25 +54,33 @@ DB_PATH = "subscriptions.db"
 db_lock = threading.Lock()
 
 def init_db():
+    """Create the subscriptions table if it doesn't exist."""
     with db_lock:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS subscriptions (
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS subscriptions (
                         user_id INTEGER PRIMARY KEY,
-                        expiry_date INTEGER NOT NULL)''')
+                        expiry_date INTEGER NOT NULL)"""
+        )
         conn.commit()
         conn.close()
 
 def add_subscription(user_id, days=30):
+    """Add or update a subscription with expiry = now + days."""
     expiry = int(time.time()) + days * 86400
     with db_lock:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute("REPLACE INTO subscriptions (user_id, expiry_date) VALUES (?, ?)", (user_id, expiry))
+        c.execute(
+            "REPLACE INTO subscriptions (user_id, expiry_date) VALUES (?, ?)",
+            (user_id, expiry),
+        )
         conn.commit()
         conn.close()
 
 def remove_subscription(user_id):
+    """Remove a user from the subscriptions table."""
     with db_lock:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -66,6 +89,7 @@ def remove_subscription(user_id):
         conn.close()
 
 def get_expired_users(now=None):
+    """Return list of user IDs whose subscription has expired."""
     if now is None:
         now = int(time.time())
     with db_lock:
@@ -98,12 +122,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    photo = update.message.photo[-1]
+    photo = update.message.photo[-1]  # largest size
     caption = f"Payment screenshot from {user.full_name} (@{user.username}) ID: {user.id}"
-    keyboard = [[
-        InlineKeyboardButton("Approve", callback_data=f"approve:{user.id}"),
-        InlineKeyboardButton("Decline", callback_data=f"decline:{user.id}")
-    ]]
+    keyboard = [
+        [
+            InlineKeyboardButton("Approve", callback_data=f"approve:{user.id}"),
+            InlineKeyboardButton("Decline", callback_data=f"decline:{user.id}"),
+        ]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     for admin_id in ADMIN_IDS:
@@ -112,7 +138,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=admin_id,
                 photo=photo.file_id,
                 caption=caption,
-                reply_markup=reply_markup
+                reply_markup=reply_markup,
             )
         except Exception as e:
             print(f"Failed to send to admin {admin_id}: {e}", flush=True)
@@ -133,16 +159,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = int(user_id_str)
 
     if action == "approve":
-        add_subscription(user_id)
+        add_subscription(user_id)  # default 30 days
         try:
             invite_link = await context.bot.create_chat_invite_link(
                 chat_id=PRIVATE_CHANNEL_ID,
                 member_limit=1,
-                expire_date=int(time.time()) + 30*86400
+                expire_date=int(time.time()) + 30 * 86400,
             )
             await context.bot.send_message(
                 chat_id=user_id,
-                text=f"✅ Your payment has been approved! Here is your 30-day invite link:\n{invite_link.invite_link}\n\nThe link expires in 30 days."
+                text=f"✅ Your payment has been approved! Here is your 30-day invite link:\n{invite_link.invite_link}\n\nThe link expires in 30 days.",
             )
             await query.edit_message_text(f"✅ Approved user {user_id}.")
         except Exception as e:
@@ -169,11 +195,11 @@ async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         invite_link = await context.bot.create_chat_invite_link(
             chat_id=PRIVATE_CHANNEL_ID,
             member_limit=1,
-            expire_date=int(time.time()) + days*86400
+            expire_date=int(time.time()) + days * 86400,
         )
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"An admin approved your subscription for {days} days! Link: {invite_link.invite_link}"
+            text=f"An admin approved your subscription for {days} days! Link: {invite_link.invite_link}",
         )
         await update.message.reply_text(f"✅ Approved user {user_id} for {days} days.")
     except Exception as e:
@@ -181,32 +207,42 @@ async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # -------------------- Run Bot in Background Thread --------------------
 def run_bot():
+    """Start the bot polling loop in a background thread."""
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+
+        # Build the application
         application = Application.builder().token(BOT_TOKEN).build()
 
-        # Delete any existing webhook to ensure polling works
-        loop.run_until_complete(application.bot.delete_webhook(drop_pending_updates=True))
+        # Clear any leftover webhook (important if previously used)
+        loop.run_until_complete(
+            application.bot.delete_webhook(drop_pending_updates=True)
+        )
         print("Webhook cleared, starting polling...", flush=True)
 
-        # Test token by getting bot info
+        # Verify token and get bot info
         bot_info = loop.run_until_complete(application.bot.get_me())
         print(f"Bot username: @{bot_info.username}", flush=True)
 
-        # Add handlers
+        # Register handlers
         application.add_handler(CommandHandler("start", start_command))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(CallbackQueryHandler(handle_callback))
         application.add_handler(CommandHandler("approve", approve_command))
 
         print("Bot started (polling)...", flush=True)
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        # Disable signal handlers to avoid threading error
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES, stop_signals=None
+        )
     except Exception as e:
         print(f"Polling error: {e}", flush=True)
         import traceback
+
         traceback.print_exc()
 
+# Start the bot thread when the module is loaded
 threading.Thread(target=run_bot, daemon=True).start()
 
 # -------------------- Run Flask --------------------

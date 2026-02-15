@@ -3,7 +3,6 @@ import sqlite3
 import threading
 import time
 import asyncio
-import sys
 import atexit
 from flask import Flask, request
 from dotenv import load_dotenv
@@ -37,7 +36,7 @@ if _admins:
         except ValueError:
             print(f"Warning: ignoring invalid ADMIN_ID '{x}'")
 
-# Use RENDER_URL but override if needed; for Koyeb we set it via env var.
+# Base URL for your app – set this in Koyeb environment variables
 APP_URL = os.getenv("APP_URL", "https://commercial-emma-robel-e81fbc32.koyeb.app")
 WEBHOOK_URL = f"{APP_URL}/webhook"
 
@@ -97,6 +96,25 @@ init_db()
 
 # -------------------- Flask App --------------------
 app = Flask(__name__)
+
+# -------------------- Telegram Bot Setup --------------------
+application = Application.builder().token(BOT_TOKEN).build()
+application.add_handler(CommandHandler("start", start_command))
+application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+application.add_handler(CallbackQueryHandler(handle_callback))
+application.add_handler(CommandHandler("approve", approve_command))
+
+# Initialize the application once (synchronously)
+async def init_app():
+    await application.initialize()
+    await application.start()
+asyncio.run(init_app())
+
+# Shutdown hook
+def shutdown():
+    asyncio.run(application.stop())
+    asyncio.run(application.shutdown())
+atexit.register(shutdown)
 
 # -------------------- Telegram Bot Handlers --------------------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -190,28 +208,6 @@ async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Approval failed: {e}")
 
-# -------------------- Bot Setup (with webhook initialization) --------------------
-application = Application.builder().token(BOT_TOKEN).build()
-application.add_handler(CommandHandler("start", start_command))
-application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-application.add_handler(CallbackQueryHandler(handle_callback))
-application.add_handler(CommandHandler("approve", approve_command))
-
-# Create a dedicated asyncio loop for the application
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-loop.run_until_complete(application.initialize())
-loop.run_until_complete(application.start())
-application.loop = loop  # Store loop for later use
-print("✅ Application initialized and started", flush=True)
-
-# Shutdown hook to cleanly stop the application on exit
-def shutdown():
-    if application:
-        asyncio.run_coroutine_threadsafe(application.stop(), application.loop)
-        asyncio.run_coroutine_threadsafe(application.shutdown(), application.loop)
-atexit.register(shutdown)
-
 # -------------------- Flask Routes --------------------
 @app.route("/")
 def health():
@@ -223,53 +219,50 @@ def status():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    """Process incoming Telegram updates and log receipt."""
-    # Log receipt (for debugging)
+    """Handle incoming Telegram updates."""
+    # Optional file log (keep for debugging)
     try:
         with open("/tmp/webhook.log", "a") as f:
             f.write(f"Webhook received at {time.time()}\n")
     except Exception as e:
-        print(f"Error writing log: {e}", file=sys.stderr, flush=True)
+        print(f"Error writing log: {e}", flush=True)
 
-    # Process the update
     try:
         data = request.get_json(force=True)
-        update = Update.de_json(data, application.bot)
-        # Schedule the update on the application's event loop
-        asyncio.run_coroutine_threadsafe(
-            application.process_update(update), application.loop
-        )
+        # Process the update in a fresh event loop
+        async def process():
+            update = Update.de_json(data, application.bot)
+            await application.process_update(update)
+        asyncio.run(process())
         return "OK", 200
     except Exception as e:
         print(f"❌ Error in webhook: {e}", flush=True)
-        return "OK", 200  # Always return OK to acknowledge receipt
+        return "OK", 200  # Always return OK
 
 @app.route("/view_log")
 def view_log():
-    """View the contents of the webhook log file."""
+    """View the webhook log file."""
     try:
         with open("/tmp/webhook.log", "r") as f:
             content = f.read()
         return f"<pre>{content}</pre>"
     except FileNotFoundError:
         return "No webhook hits yet."
-    except Exception as e:
-        return f"Error reading log: {e}"
 
 @app.route("/set_webhook")
 def set_webhook():
-    """Register the webhook URL with Telegram."""
+    """Register the webhook with Telegram."""
     async def set_hook():
         await application.bot.set_webhook(url=WEBHOOK_URL)
-    asyncio.run_coroutine_threadsafe(set_hook(), application.loop).result()
+    asyncio.run(set_hook())
     return f"Webhook set to {WEBHOOK_URL}"
 
 @app.route("/webhook_info")
 def webhook_info():
-    """Show current webhook status from Telegram."""
+    """Get current webhook status from Telegram."""
     async def get_info():
         return await application.bot.get_webhook_info()
-    info = asyncio.run_coroutine_threadsafe(get_info(), application.loop).result()
+    info = asyncio.run(get_info())
     return f"""
     <html>
     <body>
@@ -284,11 +277,11 @@ def webhook_info():
 
 @app.route("/bot_info")
 def bot_info():
-    """Check bot token validity and get bot info."""
+    """Check bot token and get bot info."""
     async def get_me():
         return await application.bot.get_me()
     try:
-        me = asyncio.run_coroutine_threadsafe(get_me(), application.loop).result()
+        me = asyncio.run(get_me())
         return f"Bot: @{me.username} (ID: {me.id})"
     except Exception as e:
         return f"Error: {e}"

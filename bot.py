@@ -2,6 +2,7 @@ import os
 import sqlite3
 import threading
 import time
+import asyncio  # <-- Added for async calls in cleanup thread
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -107,6 +108,9 @@ def plan_keyboard():
         [InlineKeyboardButton(f"3 Months – {PRICE_3} Birr", callback_data="plan:3")],
     ]
     return InlineKeyboardMarkup(keyboard)
+
+# -------------------- Create the Application (global) --------------------
+application = Application.builder().token(BOT_TOKEN).build()
 
 # -------------------- Telegram Bot Handlers --------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -350,9 +354,38 @@ async def list_subscribers(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{status} `{uid}` – expires {format_expiry(exp)}")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
+# -------------------- Auto Cleanup Thread --------------------
+def auto_cleanup():
+    """Run cleanup every 24 hours to remove expired subscribers."""
+    while True:
+        time.sleep(86400)  # 24 hours
+        now = int(time.time())
+        expired = get_expired_users(now)
+        if expired:
+            print(f"🧹 Cleaning up {len(expired)} expired users...")
+            for user_id in expired:
+                try:
+                    # Ban from channel
+                    asyncio.run(application.bot.ban_chat_member(
+                        chat_id=PRIVATE_CHANNEL_ID,
+                        user_id=user_id
+                    ))
+                    # Remove from database
+                    remove_subscription(user_id)
+                    # Notify user
+                    asyncio.run(application.bot.send_message(
+                        chat_id=user_id,
+                        text="Your subscription has expired. To renew, please send a new payment screenshot."
+                    ))
+                    print(f"✅ Removed expired user {user_id}")
+                except Exception as e:
+                    print(f"❌ Error cleaning up user {user_id}: {e}")
+        else:
+            print("🧹 No expired users found.")
+
 # -------------------- Main Function --------------------
 def main():
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Add all handlers to the application
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("status", status_command))
@@ -362,6 +395,10 @@ def main():
     application.add_handler(CallbackQueryHandler(plan_callback, pattern="^plan:"))
     application.add_handler(CallbackQueryHandler(handle_callback, pattern="^(approve|decline):"))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+
+    # Start the auto‑cleanup thread (daemon so it stops when main stops)
+    cleanup_thread = threading.Thread(target=auto_cleanup, daemon=True)
+    cleanup_thread.start()
 
     print("🤖 Bot started (polling mode)...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)

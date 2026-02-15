@@ -3,6 +3,7 @@ import sqlite3
 import threading
 import time
 import asyncio
+import sys  # added for stderr logging
 from flask import Flask, request
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -205,18 +206,9 @@ def status():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    print("✅ Webhook received!", flush=True)
-    if request.method != "POST":
-        return "Method not allowed", 405
-    try:
-        update = Update.de_json(request.get_json(force=True), application.bot)
-        print(f"Processing update {update.update_id}", flush=True)
-        asyncio.run(application.process_update(update))
-        print(f"Update {update.update_id} processed successfully", flush=True)
-        return "OK", 200
-    except Exception as e:
-        print(f"Error processing webhook: {e}", flush=True)
-        return "OK", 200
+    # Minimal test version – just logs and returns OK
+    print("✅ Webhook received! (minimal test)", file=sys.stderr, flush=True)
+    return "OK", 200
 
 @app.route("/set_webhook")
 def set_webhook():

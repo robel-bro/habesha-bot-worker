@@ -3,7 +3,7 @@ import sqlite3
 import threading
 import time
 import asyncio
-import sys  # added for stderr logging
+import sys
 from flask import Flask, request
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -206,9 +206,26 @@ def status():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    # Minimal test version – just logs and returns OK
-    print("✅ Webhook received! (minimal test)", file=sys.stderr, flush=True)
+    """File‑based logging – writes to /tmp/webhook.log"""
+    import time
+    try:
+        with open("/tmp/webhook.log", "a") as f:
+            f.write(f"Webhook received at {time.time()}\n")
+    except Exception as e:
+        print(f"Error writing log: {e}", file=sys.stderr, flush=True)
     return "OK", 200
+
+@app.route("/view_log")
+def view_log():
+    """View the contents of the webhook log file."""
+    try:
+        with open("/tmp/webhook.log", "r") as f:
+            content = f.read()
+        return f"<pre>{content}</pre>"
+    except FileNotFoundError:
+        return "No webhook hits yet."
+    except Exception as e:
+        return f"Error reading log: {e}"
 
 @app.route("/set_webhook")
 def set_webhook():

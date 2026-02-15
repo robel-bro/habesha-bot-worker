@@ -2,9 +2,7 @@ import os
 import sqlite3
 import threading
 import time
-import asyncio
 from datetime import datetime
-from flask import Flask, request
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -31,10 +29,6 @@ if _admins:
         x = x.strip()
         if x and x.isdigit():
             ADMIN_IDS.append(int(x))
-
-PORT = int(os.environ.get("PORT", 8000))
-APP_URL = os.getenv("APP_URL", "https://commercial-emma-robel-e81fbc32.koyeb.app")
-WEBHOOK_URL = f"{APP_URL}/webhook"
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is required")
@@ -94,14 +88,7 @@ def get_subscription_expiry(user_id):
 
 init_db()
 
-# -------------------- Flask App --------------------
-app = Flask(__name__)
-
-# -------------------- Telegram Bot Setup --------------------
-# Build application WITHOUT an updater (essential for webhook mode)
-application = Application.builder().token(BOT_TOKEN).updater(None).build()
-
-# Prices in Ethiopian Birr
+# -------------------- Bot Constants --------------------
 TELEBIRR_ACCOUNT = "0987973732"
 PRICE_1 = 700
 PRICE_2 = 1400
@@ -363,96 +350,21 @@ async def list_subscribers(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{status} `{uid}` – expires {format_expiry(exp)}")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
-# Register all handlers
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("help", help_command))
-application.add_handler(CommandHandler("status", status_command))
-application.add_handler(CommandHandler("renew", renew_request))
-application.add_handler(CommandHandler("approve", approve_manual, filters=filters.User(user_id=ADMIN_IDS)))
-application.add_handler(CommandHandler("list", list_subscribers, filters=filters.User(user_id=ADMIN_IDS)))
-application.add_handler(CallbackQueryHandler(plan_callback, pattern="^plan:"))
-application.add_handler(CallbackQueryHandler(handle_callback, pattern="^(approve|decline):"))
-application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+# -------------------- Main Function --------------------
+def main():
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("renew", renew_request))
+    application.add_handler(CommandHandler("approve", approve_manual, filters=filters.User(user_id=ADMIN_IDS)))
+    application.add_handler(CommandHandler("list", list_subscribers, filters=filters.User(user_id=ADMIN_IDS)))
+    application.add_handler(CallbackQueryHandler(plan_callback, pattern="^plan:"))
+    application.add_handler(CallbackQueryHandler(handle_callback, pattern="^(approve|decline):"))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
-# Initialize the application (no updater, so no background tasks start)
-async def init_app():
-    await application.initialize()
-    # No need to call start() – it would only start job queue, which we don't use
+    print("🤖 Bot started (polling mode)...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
-asyncio.run(init_app())
-
-# -------------------- Flask Routes --------------------
-@app.route("/")
-def home():
-    return "Bot is running (webhook mode)", 200
-
-@app.route("/status")
-def status():
-    return "OK", 200
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    """Handle incoming Telegram updates via webhook."""
-    try:
-        data = request.get_json(force=True)
-        update = Update.de_json(data, application.bot)
-        # Process update synchronously in a new event loop
-        asyncio.run(application.process_update(update))
-        return "OK", 200
-    except Exception as e:
-        print(f"Error in webhook: {e}")
-        return "OK", 200  # Always return OK to acknowledge receipt
-
-@app.route("/set_webhook")
-def set_webhook():
-    """Register the webhook with Telegram."""
-    async def set_hook():
-        await application.bot.set_webhook(url=WEBHOOK_URL)
-    asyncio.run(set_hook())
-    return f"✅ Webhook set to {WEBHOOK_URL}"
-
-@app.route("/webhook_info")
-def webhook_info():
-    """Get current webhook status from Telegram."""
-    async def get_info():
-        return await application.bot.get_webhook_info()
-    info = asyncio.run(get_info())
-    return f"""
-    <html>
-    <body>
-    <h2>Webhook Info</h2>
-    <p><b>URL:</b> {info.url}</p>
-    <p><b>Pending updates:</b> {info.pending_update_count}</p>
-    <p><b>Last error message:</b> {info.last_error_message}</p>
-    <p><b>Last error date:</b> {info.last_error_date}</p>
-    </body>
-    </html>
-    """
-
-@app.route("/cleanup")
-def cleanup_expired():
-    """Remove expired users from channel and database."""
-    token = request.args.get("token")
-    if token != "habeshaVVIP2025":  # Change this to your secret token
-        return "Unauthorized", 403
-
-    now = int(time.time())
-    expired = get_expired_users(now)
-    for user_id in expired:
-        try:
-            asyncio.run(application.bot.ban_chat_member(
-                chat_id=PRIVATE_CHANNEL_ID,
-                user_id=user_id
-            ))
-            remove_subscription(user_id)
-            asyncio.run(application.bot.send_message(
-                chat_id=user_id,
-                text="Your subscription has expired. To renew, please send a new payment screenshot."
-            ))
-        except Exception as e:
-            print(f"Error removing user {user_id}: {e}")
-    return f"Removed {len(expired)} expired users."
-
-# -------------------- Run Flask --------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT)
+    main()

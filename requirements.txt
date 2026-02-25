@@ -1,5 +1,175 @@
-python-telegram-bot==20.5
-Flask==2.3.3
-python-dotenv==1.0.0
-httpx==0.24.1
-gunicorn==20.1.0
+"use client";
+
+import { motion } from "framer-motion";
+import { useInView } from "react-intersection-observer";
+import Image from "next/image";
+import Link from "next/link";
+
+function Reveal({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
+  const [ref, inView] = useInView({ triggerOnce: true, threshold: 0.2 });
+  return (
+    <motion.div
+      ref={ref}
+      initial={{ opacity: 0, y: 50 }}
+      animate={inView ? { opacity: 1, y: 0 } : {}}
+      transition={{ duration: 0.6, delay }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+// Region card component (with colored placeholder if no image)
+function RegionCard({ name, flavor }: { name: string; flavor: string }) {
+  // Generate a consistent color based on region name
+  const colors = ["bg-amber-700", "bg-green-700", "bg-orange-700", "bg-red-700", "bg-yellow-700", "bg-brown-700"];
+  const colorIndex = name.length % colors.length;
+  return (
+    <Link href={`/regions#${name.toLowerCase()}`} className="block group">
+      <div className={`relative h-64 rounded-xl overflow-hidden shadow-lg hover:shadow-2xl transition ${colors[colorIndex]}`}>
+        {/* If you have images later, replace this div with <Image> */}
+        <div className="absolute inset-0 flex items-center justify-center text-white text-4xl font-bold opacity-30">
+          {name.charAt(0)}
+        </div>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+        <div className="absolute bottom-0 left-0 right-0 p-5 text-white">
+          <h3 className="text-2xl font-bold mb-1">{name}</h3>
+          <p className="text-sm opacity-90">{flavor}</p>
+          <span className="inline-block mt-2 text-amber-300 font-semibold group-hover:underline">
+            Explore Region →
+          </span>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+export default function CoffeePage() {
+  const regions = [
+    { name: "Sidamo", flavor: "Berry, chocolate, winey acidity" },
+    { name: "Yirgacheffe", flavor: "Floral, citrus, tea-like body" },
+    { name: "Guji", flavor: "Fruity, complex, wine-like" },
+    { name: "Limu", flavor: "Well-balanced, winey, spicy" },
+    { name: "Harrar", flavor: "Blueberry, mocha, wild acidity" },
+    { name: "Djimmah", flavor: "Low-acid, smooth (washed)" },
+    { name: "Lekemti", flavor: "Pleasant acidity, fruity" },
+    { name: "Ghimbi", flavor: "Sharp acidity, complex" },
+    { name: "Sheka", flavor: "Floral, citrus, forest coffee" },
+  ];
+
+  return (
+    <main className="min-h-screen bg-white">
+      <div className="pt-16"></div>
+
+      {/* Hero Image */}
+      <section className="relative h-[60vh] flex items-center justify-center text-white">
+        <div className="absolute inset-0">
+          <Image
+            src="/images/coffee-hero.jpg"
+            alt="Ethiopian coffee"
+            fill
+            className="object-cover"
+            priority
+          />
+          <div className="absolute inset-0 bg-black/50" />
+        </div>
+        <div className="relative z-10 text-center px-4">
+          <h1 className="text-5xl font-bold mb-4">Ethiopian Coffee</h1>
+          <p className="text-xl max-w-3xl mx-auto">
+            From the birthplace of Arabica – premium specialty and commercial grades.
+          </p>
+        </div>
+      </section>
+
+      {/* Introduction */}
+      <section className="py-16 px-4">
+        <div className="container mx-auto max-w-4xl">
+          <Reveal>
+            <p className="text-lg text-gray-700 leading-relaxed mb-6">
+              Ethiopia is the origin of coffee and has diversified coffee types. At Ayuda Trade, we specialize in coffee export, sourcing and exporting all varieties of Ethiopian coffee from different regions to destinations all over the world. Our coffee export product list includes both specialty and commercial types.
+            </p>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* Explore Coffee Origins Section */}
+      <section className="py-16 px-4 bg-gray-50">
+        <div className="container mx-auto max-w-6xl">
+          <Reveal>
+            <h2 className="text-4xl font-bold text-center mb-4 text-gray-800">Explore Our Coffee Origins</h2>
+            <p className="text-center text-gray-600 max-w-2xl mx-auto mb-12">
+              Discover the unique flavor profiles of Ethiopia's premier coffee regions.
+            </p>
+          </Reveal>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {regions.map((region, index) => (
+              <Reveal key={index} delay={index * 0.1}>
+                <RegionCard name={region.name} flavor={region.flavor} />
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Washed Coffees */}
+      <section className="py-8 px-4">
+        <div className="container mx-auto max-w-6xl">
+          <Reveal>
+            <h2 className="text-3xl font-bold text-green-700 mb-6 pb-2 border-b-2 border-green-200">Washed Coffees</h2>
+          </Reveal>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
+            {[
+              { region: "Yirgacheffe", grades: "Grade 1 & 2" },
+              { region: "Yirgacheffe", grades: "Grade 2, 3, 4 & UG" },
+              { region: "Sidamo", grades: "Grade 1 & 2" },
+              { region: "Sidamo", grades: "Grade 2, 3, 4 & UG" },
+              { region: "Limu", grades: "Grade 2" },
+              { region: "Limu", grades: "Grade 2, 3, 4 & UG" },
+              { region: "Guji", grades: "Grade 1 & 2" },
+              { region: "Guji", grades: "Grade 2, 3, 4 & UG" },
+            ].map((item, index) => (
+              <Reveal key={`washed-${index}`} delay={index * 0.05}>
+                <div className="bg-amber-50 p-4 rounded-lg shadow-sm hover:shadow-md transition">
+                  <h3 className="text-xl font-semibold text-green-800">{item.region}</h3>
+                  <p className="text-gray-600">{item.grades}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+
+          {/* Natural Coffees */}
+          <Reveal>
+            <h2 className="text-3xl font-bold text-green-700 mb-6 pb-2 border-b-2 border-green-200">Natural / Dry-Processed Coffees</h2>
+          </Reveal>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
+            {[
+              { region: "Djimmah", grades: "Grade 3, 4, 5 & UG" },
+              { region: "Nekemte", grades: "Grade 3, 4, 5 & UG" },
+              { region: "Harrar", grades: "Grade 2, 3, 4, 5 & UG" },
+              { region: "Sidamo", grades: "Grade 3, 4 & UG (Natural)" },
+              { region: "Guji", grades: "Grade 3, 4 & UG (Natural)" },
+            ].map((item, index) => (
+              <Reveal key={`natural-${index}`} delay={index * 0.05}>
+                <div className="bg-amber-50 p-4 rounded-lg shadow-sm hover:shadow-md transition">
+                  <h3 className="text-xl font-semibold text-green-800">{item.region}</h3>
+                  <p className="text-gray-600">{item.grades}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Call to Action */}
+      <section className="py-16 px-4 bg-green-700 text-white">
+        <div className="container mx-auto text-center">
+          <h2 className="text-3xl font-bold mb-4">Ready to Source Ethiopian Coffee?</h2>
+          <p className="text-xl mb-8">Contact us for grade specifications, pricing, and samples.</p>
+          <a href="/contact" className="inline-block bg-amber-500 hover:bg-amber-600 text-gray-900 font-semibold px-8 py-3 rounded-full transition">
+            Inquire Now
+          </a>
+        </div>
+      </section>
+    </main>
+  );
+}
